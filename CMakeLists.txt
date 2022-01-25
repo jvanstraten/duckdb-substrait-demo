@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   add_compile_options(
     -Wall
-    -Werror
+    #-Werror
     -pedantic
     -fsanitize=address
     -fno-sanitize=vptr

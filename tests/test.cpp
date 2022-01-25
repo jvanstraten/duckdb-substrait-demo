@@ -15,6 +15,8 @@
 #include <cassert>
 #include "duckdb/main/materialized_query_result.hpp"
 
+#include <google/protobuf/util/json_util.h>
+
 #define CATCH_CONFIG_RUNNER
 #include "catch.hpp"
 
@@ -76,7 +78,16 @@ bool CompareQueryResults(QueryResult &actual_result, QueryResult &roundtrip_resu
 	}
 }
 
-static void roundtrip_query(duckdb::Connection &con, const string &query) {
+static void roundtrip_query(duckdb::Connection &con, const string &query, const string &name="test") {
+	{
+		ofstream outfile;
+		outfile.open("queries.txt", ios_base::app);
+		outfile << "================================================================================\n";
+		outfile << "Name: " << name << "\n";
+		outfile << "--------------------------------------------------------------------------------\n";
+		outfile << query << "\n";
+	}
+
 	DuckDBToSubstrait transformer_d2s;
 	auto actual_result = con.Query(query);
 	con.context->config.enable_optimizer = optimized_plans;
@@ -89,9 +100,33 @@ static void roundtrip_query(duckdb::Connection &con, const string &query) {
 
 	string serialized;
 	transformer_d2s.SerializeToString(serialized);
-
 	substrait::Plan splan2;
 	splan2.ParseFromString(serialized);
+
+	{
+		ofstream outfile;
+		outfile.open("queries.txt", ios_base::app);
+		outfile << "--------------------------------------------------------------------------------\n";
+		outfile << "[";
+		bool first = true;
+		for (char c : serialized) {
+			if (first) {
+				first = false;
+			} else {
+				outfile << ", ";
+			}
+			outfile << (static_cast<unsigned int>(c) & 0xFF);
+		}
+		outfile << "]\n";
+		outfile << "--------------------------------------------------------------------------------\n";
+		google::protobuf::util::JsonPrintOptions opt;
+		opt.add_whitespace = true;
+		opt.always_print_primitive_fields = true;
+		string json;
+		google::protobuf::util::MessageToJsonString(splan2, &json, opt);
+		outfile << json << "\n";
+	}
+
 	SubstraitToDuckDB transformer_s2d(con, splan2);
 	auto duckdb_rel = transformer_s2d.TransformPlan(splan2);
 	splan2.Clear();
@@ -185,7 +220,7 @@ void test_tpch(int query_number) {
 		tpch_con.Query("call dbgen(sf=0.1)");
 	}
 	auto query = TPCHExtension::GetQuery(query_number);
-	roundtrip_query(tpch_con, query);
+	roundtrip_query(tpch_con, query, "TPC-H" + to_string(query_number));
 }
 
 TEST_CASE("TPC-H Q 01", "[tpch]") {
